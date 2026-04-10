@@ -4,10 +4,12 @@ import * as THREE from 'three'
 // __gui_import__
 
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass'
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader'
+import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader'
 import { Pane } from 'tweakpane'
 
 /**
@@ -83,6 +85,90 @@ const mesh = new THREE.Mesh(geometry, material)
 mesh.position.y += 0.5
 scene.add(mesh)
 
+let currentModel = mesh
+
+/**
+ * Drag & Drop GLTF/GLB
+ */
+const gltfLoader = new GLTFLoader()
+
+function assignFaceColors(geo) {
+	const count = geo.attributes.position.count
+	const colorsArr = new Float32Array(count * 3)
+	const palette = [
+		new THREE.Color('red'),
+		new THREE.Color('blue'),
+		new THREE.Color('green'),
+		new THREE.Color('yellow'),
+		new THREE.Color('cyan'),
+		new THREE.Color('magenta'),
+		new THREE.Color('orange'),
+		new THREE.Color('purple'),
+	]
+
+	if (geo.index) {
+		// indexed geometry: color per triangle
+		const faceCount = geo.index.count / 3
+		const vertexFace = new Float32Array(count * 3)
+		for (let f = 0; f < faceCount; f++) {
+			const c = palette[f % palette.length]
+			for (let v = 0; v < 3; v++) {
+				const idx = geo.index.getX(f * 3 + v)
+				vertexFace[idx * 3] = c.r
+				vertexFace[idx * 3 + 1] = c.g
+				vertexFace[idx * 3 + 2] = c.b
+			}
+		}
+		geo.setAttribute('color', new THREE.BufferAttribute(vertexFace, 3))
+	} else {
+		// non-indexed: every 3 vertices = 1 face
+		const faceCount = count / 3
+		for (let f = 0; f < faceCount; f++) {
+			const c = palette[f % palette.length]
+			for (let v = 0; v < 3; v++) {
+				const i = (f * 3 + v) * 3
+				colorsArr[i] = c.r
+				colorsArr[i + 1] = c.g
+				colorsArr[i + 2] = c.b
+			}
+		}
+		geo.setAttribute('color', new THREE.BufferAttribute(colorsArr, 3))
+	}
+}
+
+function loadModel(file) {
+	const url = URL.createObjectURL(file)
+	gltfLoader.load(url, (gltf) => {
+		URL.revokeObjectURL(url)
+
+		// remove current model
+		scene.remove(currentModel)
+
+		const model = gltf.scene
+
+		// apply vertex colors + shader material to each mesh
+		model.traverse((child) => {
+			if (child.isMesh) {
+				assignFaceColors(child.geometry)
+				child.material = material
+			}
+		})
+
+		// auto-center and scale
+		const box = new THREE.Box3().setFromObject(model)
+		const size = box.getSize(new THREE.Vector3())
+		const center = box.getCenter(new THREE.Vector3())
+		const maxDim = Math.max(size.x, size.y, size.z)
+		const scale = 2 / maxDim
+		model.scale.setScalar(scale)
+		model.position.sub(center.multiplyScalar(scale))
+		model.position.y += (size.y * scale) / 2
+
+		scene.add(model)
+		currentModel = model
+	})
+}
+
 /**
  * render sizes
  */
@@ -114,6 +200,19 @@ const renderer = new THREE.WebGLRenderer({
 })
 document.body.appendChild(renderer.domElement)
 
+renderer.domElement.addEventListener('dragover', (e) => {
+	e.preventDefault()
+	e.dataTransfer.dropEffect = 'copy'
+})
+
+renderer.domElement.addEventListener('drop', (e) => {
+	e.preventDefault()
+	const file = [...e.dataTransfer.files].find((f) =>
+		/\.(glb|gltf)$/i.test(f.name),
+	)
+	if (file) loadModel(file)
+})
+
 /**
  * OrbitControls
  */
@@ -137,6 +236,7 @@ const OutlineShader = {
 		tDiffuse: { value: null },
 		resolution: { value: new THREE.Vector2(sizes.width, sizes.height) },
 		edgeWidth: { value: 1.0 },
+		edgeColor: { value: new THREE.Color(0x0c1fe7) },
 	},
 	vertexShader: /* glsl */ `
 		varying vec2 vUv;
@@ -149,6 +249,7 @@ const OutlineShader = {
 		uniform sampler2D tDiffuse;
 		uniform vec2 resolution;
 		uniform float edgeWidth;
+		uniform vec3 edgeColor;
 		varying vec2 vUv;
 
 		void main() {
@@ -171,10 +272,11 @@ const OutlineShader = {
 			// threshold: if neighbor color differs significantly -> edge
 			float isEdge = smoothstep(0.01, 0.1, edge);
 
-			// on edge: show the face color, otherwise: white
-			vec3 finalColor = mix(vec3(1.0), vec3(0.0), isEdge);
+			// on edge: show the edge color, otherwise: white
+			vec3 finalColor = mix(vec3(1.0), edgeColor, isEdge);
 
 			gl_FragColor = vec4(finalColor, 1.0);
+			
 		}
 	`,
 }
@@ -189,6 +291,9 @@ composer.addPass(outlinePass)
 const fxaaPass = new ShaderPass(FXAAShader)
 composer.addPass(fxaaPass)
 
+const gammaCorrectionPass = new ShaderPass(GammaCorrectionShader)
+composer.addPass(gammaCorrectionPass)
+
 handleResize()
 
 pane.addBinding(outlinePass.uniforms.edgeWidth, 'value', {
@@ -197,6 +302,15 @@ pane.addBinding(outlinePass.uniforms.edgeWidth, 'value', {
 	max: 5.0,
 	step: 0.1,
 })
+
+const edgeColorParams = { color: '#0C1FE7' }
+pane
+	.addBinding(edgeColorParams, 'color', {
+		label: 'edgeColor',
+	})
+	.on('change', (ev) => {
+		outlinePass.uniforms.edgeColor.value.set(ev.value)
+	})
 
 /**
  * Three js Clock
