@@ -21,14 +21,6 @@ const config = {
 }
 const pane = new Pane()
 
-pane
-	.addBinding(config, 'example', {
-		min: 0,
-		max: 10,
-		step: 0.1,
-	})
-	.on('change', (ev) => console.log(ev.value))
-
 /**
  * Scene
  */
@@ -65,6 +57,9 @@ for (let face = 0; face < 6; face++) {
 geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
 
 const material = new THREE.ShaderMaterial({
+	uniforms: {
+		contrast: { value: 1.5 },
+	},
 	vertexShader: /* glsl */ `
 		attribute vec3 color;
 		varying vec3 vColor;
@@ -74,9 +69,12 @@ const material = new THREE.ShaderMaterial({
 		}
 	`,
 	fragmentShader: /* glsl */ `
+		uniform float contrast;
 		varying vec3 vColor;
 		void main() {
-			gl_FragColor = vec4(vColor, 1.0);
+			vec3 c = (vColor - 0.5) * contrast + 0.5;
+			c = clamp(c, 0.0, 1.0);
+			gl_FragColor = vec4(c, 1.0);
 		}
 	`,
 })
@@ -237,6 +235,7 @@ const OutlineShader = {
 		resolution: { value: new THREE.Vector2(sizes.width, sizes.height) },
 		edgeWidth: { value: 1.0 },
 		edgeColor: { value: new THREE.Color(0x0c1fe7) },
+		threshold: { value: 0.5 },
 	},
 	vertexShader: /* glsl */ `
 		varying vec2 vUv;
@@ -250,6 +249,7 @@ const OutlineShader = {
 		uniform vec2 resolution;
 		uniform float edgeWidth;
 		uniform vec3 edgeColor;
+		uniform float threshold;
 		varying vec2 vUv;
 
 		void main() {
@@ -270,7 +270,7 @@ const OutlineShader = {
 			float edge = max(max(diffL, diffR), max(diffU, diffD));
 
 			// threshold: if neighbor color differs significantly -> edge
-			float isEdge = smoothstep(0.01, 0.1, edge);
+			float isEdge = smoothstep(0.01, threshold, edge);
 
 			// on edge: show the edge color, otherwise: white
 			vec3 finalColor = mix(vec3(1.0), edgeColor, isEdge);
@@ -303,6 +303,13 @@ pane.addBinding(outlinePass.uniforms.edgeWidth, 'value', {
 	step: 0.1,
 })
 
+pane.addBinding(outlinePass.uniforms.threshold, 'value', {
+	label: 'threshold',
+	min: 0.01,
+	max: 1.0,
+	step: 0.01,
+})
+
 const edgeColorParams = { color: '#0C1FE7' }
 pane
 	.addBinding(edgeColorParams, 'color', {
@@ -311,6 +318,13 @@ pane
 	.on('change', (ev) => {
 		outlinePass.uniforms.edgeColor.value.set(ev.value)
 	})
+
+pane.addBinding(material.uniforms.contrast, 'value', {
+	label: 'contrast',
+	min: 0.5,
+	max: 5.0,
+	step: 0.1,
+})
 
 /**
  * Three js Clock
