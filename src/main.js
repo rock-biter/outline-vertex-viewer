@@ -74,7 +74,7 @@ const material = new THREE.ShaderMaterial({
 		void main() {
 			vec3 c = (vColor - 0.5) * contrast + 0.5;
 			c = clamp(c, 0.0, 1.0);
-			gl_FragColor = vec4(vColor, 1.0);
+			gl_FragColor = vec4(c, 1.0);
 		}
 	`,
 })
@@ -296,19 +296,19 @@ composer.addPass(gammaCorrectionPass)
 
 handleResize()
 
-// pane.addBinding(outlinePass.uniforms.edgeWidth, 'value', {
-// 	label: 'edgeWidth',
-// 	min: 0.5,
-// 	max: 5.0,
-// 	step: 0.1,
-// })
+pane.addBinding(outlinePass.uniforms.edgeWidth, 'value', {
+	label: 'edgeWidth',
+	min: 0.5,
+	max: 5.0,
+	step: 0.1,
+})
 
-// pane.addBinding(outlinePass.uniforms.threshold, 'value', {
-// 	label: 'threshold',
-// 	min: 0.01,
-// 	max: 1.0,
-// 	step: 0.01,
-// })
+pane.addBinding(outlinePass.uniforms.threshold, 'value', {
+	label: 'threshold',
+	min: 0.01,
+	max: 1.0,
+	step: 0.01,
+})
 
 const edgeColorParams = { color: '#0C1FE7' }
 pane
