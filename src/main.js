@@ -58,7 +58,7 @@ geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
 
 const material = new THREE.ShaderMaterial({
 	uniforms: {
-		contrast: { value: 1.5 },
+		contrast: { value: 0.8 },
 	},
 	vertexShader: /* glsl */ `
 		attribute vec3 color;
@@ -233,9 +233,10 @@ const OutlineShader = {
 	uniforms: {
 		tDiffuse: { value: null },
 		resolution: { value: new THREE.Vector2(sizes.width, sizes.height) },
-		edgeWidth: { value: 1.0 },
+		edgeWidth: { value: 0.5 },
 		edgeColor: { value: new THREE.Color(0x0c1fe7) },
-		threshold: { value: 0.5 },
+		threshold: { value: 0.01 },
+		luminosity: { value: 3.0 },
 	},
 	vertexShader: /* glsl */ `
 		varying vec2 vUv;
@@ -250,6 +251,7 @@ const OutlineShader = {
 		uniform float edgeWidth;
 		uniform vec3 edgeColor;
 		uniform float threshold;
+		uniform float luminosity;
 		varying vec2 vUv;
 
 		void main() {
@@ -272,8 +274,10 @@ const OutlineShader = {
 			// threshold: if neighbor color differs significantly -> edge
 			float isEdge = smoothstep(0.01, threshold, edge);
 
+			float luminance = dot(center, vec3(0.299, 0.587, 0.114)) * luminosity;
+
 			// on edge: show the edge color, otherwise: white
-			vec3 finalColor = mix(vec3(1.0), edgeColor, isEdge);
+			vec3 finalColor = mix(vec3(luminance), edgeColor, isEdge);
 
 			gl_FragColor = vec4(finalColor, 1.0);
 			
@@ -307,6 +311,13 @@ pane.addBinding(outlinePass.uniforms.threshold, 'value', {
 	label: 'threshold',
 	min: 0.01,
 	max: 1.0,
+	step: 0.01,
+})
+
+pane.addBinding(outlinePass.uniforms.luminosity, 'value', {
+	label: 'luminosity',
+	min: 0.0,
+	max: 3.0,
 	step: 0.01,
 })
 
