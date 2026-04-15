@@ -19,6 +19,7 @@ import { Pane } from 'tweakpane'
 const config = {
 	example: 5,
 	repetitions: 1,
+	spinPerRepetition: 0,
 }
 const pane = new Pane()
 
@@ -136,11 +137,15 @@ function assignFaceColors(geo) {
 	}
 }
 
-function buildModel(geometries, repetitions) {
+function buildModel(geometries, repetitions, spinDeg) {
 	const group = new THREE.Group()
 	const angleStep = (Math.PI * 2) / repetitions
+	const spinRad = THREE.MathUtils.degToRad(spinDeg)
 	for (let i = 0; i < repetitions; i++) {
 		const clone = new THREE.Group()
+		// apply spin on X first, then rotation on Y
+		clone.rotation.order = 'YXZ'
+		clone.rotation.x = spinRad * i
 		clone.rotation.y = angleStep * i
 		for (const geo of geometries) {
 			clone.add(new THREE.Mesh(geo, material))
@@ -203,7 +208,11 @@ function loadModel(file) {
 		config.repetitions = 1
 		pane.refresh()
 
-		const built = buildModel(originalGeometries, config.repetitions)
+		const built = buildModel(
+			originalGeometries,
+			config.repetitions,
+			config.spinPerRepetition,
+		)
 		centerAndScale(built)
 		replaceModel(built)
 		fitCameraToModel(built)
@@ -378,7 +387,30 @@ pane
 	})
 	.on('change', () => {
 		if (!originalGeometries) return
-		const built = buildModel(originalGeometries, config.repetitions)
+		const built = buildModel(
+			originalGeometries,
+			config.repetitions,
+			config.spinPerRepetition,
+		)
+		centerAndScale(built)
+		replaceModel(built)
+		fitCameraToModel(built)
+	})
+
+pane
+	.addBinding(config, 'spinPerRepetition', {
+		label: 'spin / rep (deg)',
+		min: -180,
+		max: 180,
+		step: 1,
+	})
+	.on('change', () => {
+		if (!originalGeometries) return
+		const built = buildModel(
+			originalGeometries,
+			config.repetitions,
+			config.spinPerRepetition,
+		)
 		centerAndScale(built)
 		replaceModel(built)
 		fitCameraToModel(built)
