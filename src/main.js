@@ -161,6 +161,19 @@ function centerAndScale(model) {
 	model.position.y += (size.y * scale) / 2
 }
 
+function fitCameraToModel(model) {
+	const box = new THREE.Box3().setFromObject(model)
+	const size = box.getSize(new THREE.Vector3())
+	const center = box.getCenter(new THREE.Vector3())
+	const maxDim = Math.max(size.x, size.y, size.z)
+	const fovRad = THREE.MathUtils.degToRad(camera.fov)
+	const dist = (maxDim / 2 / Math.tan(fovRad / 2)) * 1.2
+	const direction = camera.position.clone().sub(controls.target).normalize()
+	camera.position.copy(center).add(direction.multiplyScalar(dist))
+	controls.target.copy(center)
+	controls.update()
+}
+
 function replaceModel(model) {
 	scene.remove(currentModel)
 	scene.add(model)
@@ -193,6 +206,7 @@ function loadModel(file) {
 		const built = buildModel(originalGeometries, config.repetitions)
 		centerAndScale(built)
 		replaceModel(built)
+		fitCameraToModel(built)
 	})
 }
 
@@ -367,6 +381,7 @@ pane
 		const built = buildModel(originalGeometries, config.repetitions)
 		centerAndScale(built)
 		replaceModel(built)
+		fitCameraToModel(built)
 	})
 
 /**
