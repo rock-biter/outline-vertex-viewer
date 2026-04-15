@@ -10,7 +10,6 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass'
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader'
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils'
 import { Pane } from 'tweakpane'
 
 /**
@@ -19,6 +18,7 @@ import { Pane } from 'tweakpane'
 // __gui__
 const config = {
 	example: 5,
+	repetitions: 1,
 }
 const pane = new Pane()
 
@@ -85,6 +85,7 @@ mesh.position.y += 0.5
 scene.add(mesh)
 
 let currentModel = mesh
+let originalGeometries = null
 
 /**
  * Drag & Drop GLTF/GLB
@@ -135,36 +136,35 @@ function assignFaceColors(geo) {
 	}
 }
 
-function reconstructQuarter(model) {
-	// Collect all geometries with their world transforms baked in
-	const geometries = []
-	model.updateMatrixWorld(true)
-	model.traverse((child) => {
-		if (child.isMesh) {
-			const geo = child.geometry.clone()
-			geo.applyMatrix4(child.matrixWorld)
-			geometries.push(geo)
-		}
-	})
-	if (geometries.length === 0) return model
-
-	// Create 4 copies: original + 3 rotations of 90° around Y
-	const allGeos = []
-	for (let i = 0; i < 4; i++) {
-		const angle = (Math.PI / 2) * i
-		const rotMatrix = new THREE.Matrix4().makeRotationY(angle)
+function buildModel(geometries, repetitions) {
+	const group = new THREE.Group()
+	const angleStep = (Math.PI * 2) / repetitions
+	for (let i = 0; i < repetitions; i++) {
+		const clone = new THREE.Group()
+		clone.rotation.y = angleStep * i
 		for (const geo of geometries) {
-			const rotated = geo.clone()
-			rotated.applyMatrix4(rotMatrix)
-			allGeos.push(rotated)
+			clone.add(new THREE.Mesh(geo, material))
 		}
+		group.add(clone)
 	}
+	return group
+}
 
-	const merged = mergeGeometries(allGeos, false)
-	if (!merged) return model
+function centerAndScale(model) {
+	const box = new THREE.Box3().setFromObject(model)
+	const size = box.getSize(new THREE.Vector3())
+	const center = box.getCenter(new THREE.Vector3())
+	const maxDim = Math.max(size.x, size.y, size.z)
+	const scale = 2 / maxDim
+	model.scale.setScalar(scale)
+	model.position.sub(center.multiplyScalar(scale))
+	model.position.y += (size.y * scale) / 2
+}
 
-	const mesh = new THREE.Mesh(merged, material)
-	return mesh
+function replaceModel(model) {
+	scene.remove(currentModel)
+	scene.add(model)
+	currentModel = model
 }
 
 function loadModel(file) {
@@ -172,37 +172,27 @@ function loadModel(file) {
 	gltfLoader.load(url, (gltf) => {
 		URL.revokeObjectURL(url)
 
-		// remove current model
-		scene.remove(currentModel)
+		const model = gltf.scene
 
-		let model = gltf.scene
-
-		// if it's a colosseum quarter, reconstruct the full model
-		const isQuarter = file.name.toLowerCase().includes('colosseum-quarter')
-		if (isQuarter) {
-			model = reconstructQuarter(model)
-		}
-
-		// apply vertex colors + shader material to each mesh
+		// extract and store original geometries with world transforms baked in
+		const geometries = []
+		model.updateMatrixWorld(true)
 		model.traverse((child) => {
 			if (child.isMesh) {
-				// assignFaceColors(child.geometry)
-				child.material = material
+				const geo = child.geometry.clone()
+				geo.applyMatrix4(child.matrixWorld)
+				geometries.push(geo)
 			}
 		})
+		originalGeometries = geometries
 
-		// auto-center and scale
-		const box = new THREE.Box3().setFromObject(model)
-		const size = box.getSize(new THREE.Vector3())
-		const center = box.getCenter(new THREE.Vector3())
-		const maxDim = Math.max(size.x, size.y, size.z)
-		const scale = 2 / maxDim
-		model.scale.setScalar(scale)
-		model.position.sub(center.multiplyScalar(scale))
-		model.position.y += (size.y * scale) / 2
+		// reset repetitions to 1 on new load
+		config.repetitions = 1
+		pane.refresh()
 
-		scene.add(model)
-		currentModel = model
+		const built = buildModel(originalGeometries, config.repetitions)
+		centerAndScale(built)
+		replaceModel(built)
 	})
 }
 
@@ -364,6 +354,20 @@ pane.addBinding(material.uniforms.contrast, 'value', {
 	max: 5.0,
 	step: 0.1,
 })
+
+pane
+	.addBinding(config, 'repetitions', {
+		label: 'repetitions',
+		min: 1,
+		max: 36,
+		step: 1,
+	})
+	.on('change', () => {
+		if (!originalGeometries) return
+		const built = buildModel(originalGeometries, config.repetitions)
+		centerAndScale(built)
+		replaceModel(built)
+	})
 
 /**
  * Three js Clock
