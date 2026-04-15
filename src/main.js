@@ -10,6 +10,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass'
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader'
 import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils'
 import { Pane } from 'tweakpane'
 
 /**
@@ -134,6 +135,38 @@ function assignFaceColors(geo) {
 	}
 }
 
+function reconstructQuarter(model) {
+	// Collect all geometries with their world transforms baked in
+	const geometries = []
+	model.updateMatrixWorld(true)
+	model.traverse((child) => {
+		if (child.isMesh) {
+			const geo = child.geometry.clone()
+			geo.applyMatrix4(child.matrixWorld)
+			geometries.push(geo)
+		}
+	})
+	if (geometries.length === 0) return model
+
+	// Create 4 copies: original + 3 rotations of 90° around Y
+	const allGeos = []
+	for (let i = 0; i < 4; i++) {
+		const angle = (Math.PI / 2) * i
+		const rotMatrix = new THREE.Matrix4().makeRotationY(angle)
+		for (const geo of geometries) {
+			const rotated = geo.clone()
+			rotated.applyMatrix4(rotMatrix)
+			allGeos.push(rotated)
+		}
+	}
+
+	const merged = mergeGeometries(allGeos, false)
+	if (!merged) return model
+
+	const mesh = new THREE.Mesh(merged, material)
+	return mesh
+}
+
 function loadModel(file) {
 	const url = URL.createObjectURL(file)
 	gltfLoader.load(url, (gltf) => {
@@ -142,7 +175,13 @@ function loadModel(file) {
 		// remove current model
 		scene.remove(currentModel)
 
-		const model = gltf.scene
+		let model = gltf.scene
+
+		// if it's a colosseum quarter, reconstruct the full model
+		const isQuarter = file.name.toLowerCase().includes('colosseum-quarter')
+		if (isQuarter) {
+			model = reconstructQuarter(model)
+		}
 
 		// apply vertex colors + shader material to each mesh
 		model.traverse((child) => {
